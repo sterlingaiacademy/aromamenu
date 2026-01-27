@@ -31,8 +31,14 @@ class MenuManager:
         self.refresh_menu()
     
     def refresh_menu(self, force=False):
-        """Refresh menu from Clover on EVERY request - Always fresh data"""
-        # Always fetch fresh data (removed 30-minute cache)
+        """Refresh menu from Clover - cached for 30 minutes unless forced"""
+        # Check if we need to refresh (30-minute cache)
+        if not force and self.last_refresh:
+            time_since_refresh = datetime.now() - self.last_refresh
+            if time_since_refresh < timedelta(minutes=30):
+                print(f'✓ Using cached menu (refreshed {int(time_since_refresh.total_seconds() / 60)} minutes ago)')
+                return True
+        
         print(f'🔄 Fetching fresh menu from Clover...')
         
         try:
@@ -102,8 +108,8 @@ class MenuManager:
             return False
     
     def get_menu(self):
-        """Get menu and auto-refresh if needed"""
-        self.refresh_menu()
+        """Get menu - auto-refresh if cache is older than 30 minutes"""
+        self.refresh_menu()  # Will use cache if less than 30 minutes old
         return sorted(self.menu_cache, key=lambda x: (x['category'], x['name']))
 
 
@@ -118,11 +124,11 @@ async def root():
         'purpose': 'Provides real-time menu data to ElevenLabs',
         'version': '2.0',
         'environment': 'PRODUCTION',
-        'refresh_policy': 'Real-time - Menu fetched fresh on every request',
+        'refresh_policy': '30-minute cache - Menu refreshes automatically every 30 minutes',
         'endpoints': {
             'menu_text': '/menu/text - Plain text format (🎯 RECOMMENDED FOR ELEVENLABS)',
             'menu_json': '/menu - JSON format',
-            'refresh': '/menu/refresh - Force refresh',
+            'refresh': '/menu/refresh - Force immediate refresh',
             'health': '/health - Service health check'
         },
         'elevenlabs_setup': 'Use /menu/text endpoint in ElevenLabs Knowledge Base for best voice AI results'
@@ -186,7 +192,8 @@ async def get_menu_text():
         text += "\n"
     
     text += f"This menu was last updated on {menu.last_refresh.strftime('%B %d, %Y at %I:%M %p') if menu.last_refresh else 'recently'}.\n"
-    text += f"We currently have {len(items)} items on our menu."
+    text += f"We currently have {len(items)} items on our menu.\n"
+    text += "Menu automatically refreshes every 30 minutes."
     
     return text
 
@@ -231,12 +238,13 @@ if __name__ == '__main__':
     print('🍽️  Aroma Restaurant - Menu API (PRODUCTION)')
     print('='*60)
     print('📋 Purpose: Serve menu to ElevenLabs Knowledge Base')
-    print('🔄 Refresh Policy: REAL-TIME (every request)')
+    print('🔄 Refresh Policy: 30-minute cache (auto-refresh)')
     print('🎯 Use this URL in ElevenLabs: /menu/text')
     print('🏪 Environment: PRODUCTION')
     print('⚠️  Using LIVE Clover data')
     print('💲 Filtering: Items with $0 price are excluded')
     print('🧹 Cleaning: Leading numbers removed from item names')
     print('📊 Optimized for 200+ items')
+    print('⚡ Fast: Cached responses for better performance')
     print('='*60 + '\n')
     uvicorn.run(app, host='0.0.0.0', port=PORT)
