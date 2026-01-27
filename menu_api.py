@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
 import requests
 import os
+import re
 from datetime import datetime, timedelta
 
 # Clover PRODUCTION Credentials
@@ -77,8 +78,14 @@ class MenuManager:
                 # Skip duplicate items
                 if item_id and item_id not in seen_ids:
                     seen_ids.add(item_id)
+                    
+                    # Clean item name - remove leading numbers like "67. " or "7. "
+                    item_name = item.get('name', '')
+                    # Remove pattern like "67. " or "7. " from the start
+                    clean_name = re.sub(r'^\d+\.\s*', '', item_name).strip()
+                    
                     self.menu_cache.append({
-                        'name': item.get('name'),
+                        'name': clean_name,
                         'price': price_dollars,
                         'category': item.get('category', {}).get('name', 'General'),
                         'available': not item.get('hidden', False)
@@ -229,6 +236,7 @@ if __name__ == '__main__':
     print('🏪 Environment: PRODUCTION')
     print('⚠️  Using LIVE Clover data')
     print('💲 Filtering: Items with $0 price are excluded')
+    print('🧹 Cleaning: Leading numbers removed from item names')
     print('📊 Optimized for 200+ items')
     print('='*60 + '\n')
     uvicorn.run(app, host='0.0.0.0', port=PORT)
