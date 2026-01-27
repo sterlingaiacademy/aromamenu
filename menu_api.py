@@ -37,7 +37,7 @@ class MenuManager:
         try:
             all_items = []
             offset = 0
-            limit = 100
+            limit = 200  # Increased limit for better performance with 200+ items
             
             # Fetch all pages
             while True:
@@ -59,20 +59,32 @@ class MenuManager:
                 
                 offset += limit
             
-            # Process all items
+            # Process all items - Filter out $0 items and optimize for 200+ items
             self.menu_cache = []
             seen_ids = set()
+            skipped_zero_price = 0
             
             for item in all_items:
                 item_id = item.get('id')
+                price_cents = item.get('price', 0)
+                price_dollars = price_cents / 100
+                
+                # Skip items with $0 price
+                if price_cents == 0 or price_dollars == 0:
+                    skipped_zero_price += 1
+                    continue
+                
+                # Skip duplicate items
                 if item_id and item_id not in seen_ids:
                     seen_ids.add(item_id)
                     self.menu_cache.append({
                         'name': item.get('name'),
-                        'price': item.get('price', 0) / 100,
+                        'price': price_dollars,
                         'category': item.get('category', {}).get('name', 'General'),
                         'available': not item.get('hidden', False)
                     })
+            
+            print(f'⏭️  Skipped {skipped_zero_price} items with $0 price')
             
             self.last_refresh = datetime.now()
             print(f'✅ Menu refreshed: {len(self.menu_cache)} items at {self.last_refresh.strftime("%H:%M:%S")}')
@@ -213,8 +225,10 @@ if __name__ == '__main__':
     print('='*60)
     print('📋 Purpose: Serve menu to ElevenLabs Knowledge Base')
     print('🔄 Refresh Policy: REAL-TIME (every request)')
-    print('🎯 Use this URL in ElevenLabs: /menu')
+    print('🎯 Use this URL in ElevenLabs: /menu/text')
     print('🏪 Environment: PRODUCTION')
     print('⚠️  Using LIVE Clover data')
+    print('💲 Filtering: Items with $0 price are excluded')
+    print('📊 Optimized for 200+ items')
     print('='*60 + '\n')
     uvicorn.run(app, host='0.0.0.0', port=PORT)
