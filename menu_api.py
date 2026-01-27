@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta
 
 # Clover Production Credentials
-MERCHANT_ID = os.getenv('MERCHANT_ID', 'FFWOJ7HB213K1')
+MERCHANT_ID = os.getenv('MERCHANT_ID', 'FFW0J7HB213K1')
 CLOVER_TOKEN = os.getenv('CLOVER_TOKEN', '6416e29c-bc22-6d8c-1f62-14e77cbbb914')
 CLOVER_BASE_URL = os.getenv('CLOVER_BASE_URL', 'https://api.clover.com')
 PORT = int(os.getenv('PORT', 8000))
