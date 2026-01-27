@@ -101,12 +101,12 @@ async def root():
         'environment': 'PRODUCTION',
         'refresh_policy': 'Real-time - Menu fetched fresh on every request',
         'endpoints': {
-            'menu_json': '/menu - JSON format (recommended)',
-            'menu_text': '/menu/text - Plain text format',
-            'refresh': '/menu/refresh - Force refresh (same as accessing /menu)',
+            'menu_text': '/menu/text - Plain text format (🎯 RECOMMENDED FOR ELEVENLABS)',
+            'menu_json': '/menu - JSON format',
+            'refresh': '/menu/refresh - Force refresh',
             'health': '/health - Service health check'
         },
-        'elevenlabs_setup': 'Use /menu endpoint in ElevenLabs Knowledge Base'
+        'elevenlabs_setup': 'Use /menu/text endpoint in ElevenLabs Knowledge Base for best voice AI results'
     }
 
 
@@ -141,8 +141,8 @@ async def get_menu_json():
 @app.get("/menu/text", response_class=PlainTextResponse)
 async def get_menu_text():
     """
-    Alternative: Plain text format
-    Use if ElevenLabs prefers text over JSON
+    🎯 OPTIMIZED FOR ELEVENLABS VOICE AI
+    Plain text format designed for conversational AI
     """
     items = menu.get_menu()
     
@@ -154,21 +154,20 @@ async def get_menu_text():
             categories[cat] = []
         categories[cat].append(item)
     
-    text = "AROMA INDIAN RESTAURANT MENU\n"
-    text += "=" * 60 + "\n"
-    text += f"Updated: {menu.last_refresh.strftime('%Y-%m-%d %H:%M:%S') if menu.last_refresh else 'Unknown'}\n"
-    text += f"Total Items: {len(items)}\n"
-    text += "=" * 60 + "\n\n"
+    # Create conversational text format for voice AI
+    text = "Welcome to Aroma Indian Restaurant. Here is our current menu:\n\n"
     
     for category, cat_items in sorted(categories.items()):
-        text += f"\n{category.upper()}\n"
-        text += "-" * 60 + "\n"
+        text += f"{category}:\n"
         for item in cat_items:
-            status = "✓" if item['available'] else "✗"
-            text += f"{status} {item['name']:<45} ${item['price']:>6.2f}\n"
+            if item['available']:
+                text += f"- {item['name']} is ${item['price']:.2f}\n"
+            else:
+                text += f"- {item['name']} is currently unavailable\n"
+        text += "\n"
     
-    text += "\n" + "=" * 60 + "\n"
-    text += "Menu automatically syncs on every request\n"
+    text += f"This menu was last updated on {menu.last_refresh.strftime('%B %d, %Y at %I:%M %p') if menu.last_refresh else 'recently'}.\n"
+    text += f"We currently have {len(items)} items on our menu."
     
     return text
 
