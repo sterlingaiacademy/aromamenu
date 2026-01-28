@@ -100,40 +100,25 @@ class MenuManager:
                 price_cents = item.get('price', 0)
                 price_dollars = price_cents / 100
                 
-                # Get category info - Clover API returns categories as an array of references
-                categories = item.get('categories', {})
+                # Get category info - Clover returns categories as {elements: [...]}
+                categories_data = item.get('categories', {})
                 category_id = None
                 category_name = 'General'
                 item_included = False
                 
-                # Debug: print first item to see structure
-                if len(self.menu_cache) == 0:
-                    print(f"DEBUG - Sample item structure: {item.get('name')}")
-                    print(f"DEBUG - Categories field: {categories}")
-                
-                # Handle different category structures
-                if isinstance(categories, dict):
-                    # Single category as dict
-                    category_id = categories.get('id')
-                    category_name = categories.get('name', 'General')
-                    if category_id in INCLUDED_CATEGORY_IDS:
-                        item_included = True
-                elif isinstance(categories, list):
-                    # Multiple categories as list - check if ANY category is in whitelist
-                    for cat in categories:
-                        if isinstance(cat, dict):
-                            cat_id = cat.get('id')
-                            if cat_id in INCLUDED_CATEGORY_IDS:
-                                category_id = cat_id
-                                category_name = cat.get('name', 'General')
-                                item_included = True
-                                break
-                        elif isinstance(cat, str):
-                            # Sometimes it's just an ID string
-                            if cat in INCLUDED_CATEGORY_IDS:
-                                category_id = cat
-                                item_included = True
-                                break
+                # Clover structure: {"elements": [{"id": "...", "name": "..."}]}
+                if isinstance(categories_data, dict) and 'elements' in categories_data:
+                    elements = categories_data.get('elements', [])
+                    if isinstance(elements, list) and len(elements) > 0:
+                        # Check if any category is in whitelist
+                        for cat in elements:
+                            if isinstance(cat, dict):
+                                cat_id = cat.get('id')
+                                if cat_id in INCLUDED_CATEGORY_IDS:
+                                    category_id = cat_id
+                                    category_name = cat.get('name', 'General')
+                                    item_included = True
+                                    break
                 
                 # ONLY include items in the whitelist
                 if not item_included:
