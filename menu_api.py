@@ -136,11 +136,19 @@ class MenuManager:
                     
                     # Keep item name exactly as-is from Clover
                     item_name = item.get('name', '')
+                    item_description = item.get('description', '') or ''
+                    alternate_name = item.get('alternateName', '') or ''
+                    item_code = item.get('code', '') or ''
+                    item_sku = item.get('sku', '') or ''
                     
                     self.menu_cache.append({
                         'name': item_name,
                         'price': price_dollars,
                         'category': category_name,
+                        'description': item_description,
+                        'alternateName': alternate_name,
+                        'code': item_code,
+                        'sku': item_sku,
                         'available': not item.get('hidden', False)
                     })
             
@@ -203,7 +211,11 @@ async def get_menu_json():
             }
         categories[cat]['items'].append({
             'name': item['name'],
+            'alternateName': item.get('alternateName', ''),
             'price': f"${item['price']:.2f}",
+            'description': item.get('description', ''),
+            'code': item.get('code', ''),
+            'sku': item.get('sku', ''),
             'available': item['available']
         })
     
@@ -248,7 +260,16 @@ async def get_menu_text():
         cat_items = categories[category]
         for item in cat_items:
             if item['available']:
-                text += f"  {item['name']}: ${item['price']:.2f}\n"
+                text += f"  {item['name']}: ${item['price']:.2f}"
+                
+                # Add alternate name if available
+                if item.get('alternateName'):
+                    text += f" (Also known as: {item['alternateName']})"
+                text += "\n"
+                
+                # Add description if available
+                if item.get('description'):
+                    text += f"    {item['description']}\n"
             else:
                 text += f"  {item['name']}: ${item['price']:.2f} (Currently Unavailable)\n"
         
