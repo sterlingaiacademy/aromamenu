@@ -100,21 +100,43 @@ class MenuManager:
                 price_cents = item.get('price', 0)
                 price_dollars = price_cents / 100
                 
-                # Get category info
+                # Get category info - Clover API returns categories as an array of references
                 categories = item.get('categories', {})
                 category_id = None
                 category_name = 'General'
+                item_included = False
                 
-                # Handle both single category dict and multiple categories list
+                # Debug: print first item to see structure
+                if len(self.menu_cache) == 0:
+                    print(f"DEBUG - Sample item structure: {item.get('name')}")
+                    print(f"DEBUG - Categories field: {categories}")
+                
+                # Handle different category structures
                 if isinstance(categories, dict):
+                    # Single category as dict
                     category_id = categories.get('id')
                     category_name = categories.get('name', 'General')
-                elif isinstance(categories, list) and len(categories) > 0:
-                    category_id = categories[0].get('id')
-                    category_name = categories[0].get('name', 'General')
+                    if category_id in INCLUDED_CATEGORY_IDS:
+                        item_included = True
+                elif isinstance(categories, list):
+                    # Multiple categories as list - check if ANY category is in whitelist
+                    for cat in categories:
+                        if isinstance(cat, dict):
+                            cat_id = cat.get('id')
+                            if cat_id in INCLUDED_CATEGORY_IDS:
+                                category_id = cat_id
+                                category_name = cat.get('name', 'General')
+                                item_included = True
+                                break
+                        elif isinstance(cat, str):
+                            # Sometimes it's just an ID string
+                            if cat in INCLUDED_CATEGORY_IDS:
+                                category_id = cat
+                                item_included = True
+                                break
                 
                 # ONLY include items in the whitelist
-                if category_id not in INCLUDED_CATEGORY_IDS:
+                if not item_included:
                     skipped_not_in_whitelist += 1
                     continue
                 
@@ -287,6 +309,66 @@ async def health():
         'items': len(menu.menu_cache),
         'last_refresh': menu.last_refresh.isoformat() if menu.last_refresh else None
     }
+
+
+@app.get("/debug/categories")
+async def debug_categories():
+    """Debug endpoint to see all categories from Clover"""
+    try:
+        url = f'{CLOVER_BASE_URL}/v3/merchants/{MERCHANT_ID}/categories'
+        headers = {
+            'Authorization': f'Bearer {CLOVER_TOKEN}',
+            'Content-Type': 'application/json'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        categories = data.get('elements', [])
+        
+        return {
+            'total_categories': len(categories),
+            'categories': [
+                {
+                    'id': cat.get('id'),
+                    'name': cat.get('name'),
+                    'in_whitelist': cat.get('id') in INCLUDED_CATEGORY_IDS
+                }
+                for cat in categories
+            ]
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+
+@app.get("/debug/sample-items")
+async def debug_sample_items():
+    """Debug endpoint to see sample items and their category structure"""
+    try:
+        url = f'{CLOVER_BASE_URL}/v3/merchants/{MERCHANT_ID}/items?expand=categories&limit=5'
+        headers = {
+            'Authorization': f'Bearer {CLOVER_TOKEN}',
+            'Content-Type': 'application/json'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        items = data.get('elements', [])
+        
+        return {
+            'sample_items': [
+                {
+                    'name': item.get('name'),
+                    'price': item.get('price'),
+                    'categories': item.get('categories'),
+                    'category_type': str(type(item.get('categories')))
+                }
+                for item in items
+            ]
+        }
+    except Exception as e:
+        return {'error': str(e)}
 
 
 if __name__ == '__main__':
