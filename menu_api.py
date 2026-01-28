@@ -18,6 +18,29 @@ CLOVER_TOKEN = os.getenv('CLOVER_TOKEN', '6416e29c-bc22-6d8c-1f62-14e77cbbb914')
 CLOVER_BASE_URL = os.getenv('CLOVER_BASE_URL', 'https://api.clover.com')
 PORT = int(os.getenv('PORT', 8000))
 
+# ✅ Category IDs to INCLUDE in the menu (WHITELIST ONLY)
+INCLUDED_CATEGORY_IDS = [
+    "M17PNQEPG6K02",   # Soups & Sides
+    "FY9BQPAQ0NNFP",   # Appetizers-Vegetarian
+    "E5H1DFT9T32VR",   # Appetizers-Non Vegetarian
+    "FT8HR9VNRQW4R",   # Dosa Specials
+    "MEM5GGGW27WX2",   # Vegetable Entrees
+    "FSXP785519PBA",   # Chicken Entrees
+    "X146DX02VVMG2",   # Seafood Entrees
+    "07FG0SA6FMFFY",   # Lamb & Goat Entrees
+    "JB8VSZRM49J9P",   # Egg Specials
+    "Z1ZKCQTDR6BKJ",   # Aroma Specials
+    "EEZHPBVTD0H7W",   # Hyderabad Chef Specials
+    "M1H649PKCZ5TE",   # Tandoori & Kebabs
+    "RHV2MKASX5FVA",   # Biryani Specials
+    "JVKES871M1PX0",   # Indian Breads
+    "D191C2W2SYCW0",   # Rice Specials
+    "994Q0TTW39AHY",   # Indo Chinese
+    "407WNKVYVHS2E",   # Thali's
+    "KWZCZRAK0ZE7J",   # Desserts
+    "25NPKW5MTBQPA",   # Soda / Cool Drinks / Hot Drinks
+]
+
 app = FastAPI(title="Aroma Menu API - For ElevenLabs")
 
 class MenuManager:
@@ -46,9 +69,9 @@ class MenuManager:
             offset = 0
             limit = 200  # Increased limit for better performance with 200+ items
             
-            # Fetch all pages
+            # Fetch all pages with expanded categories
             while True:
-                url = f'{CLOVER_BASE_URL}/v3/merchants/{MERCHANT_ID}/items?limit={limit}&offset={offset}'
+                url = f'{CLOVER_BASE_URL}/v3/merchants/{MERCHANT_ID}/items?expand=categories&limit={limit}&offset={offset}'
                 response = requests.get(url, headers=self.headers, timeout=10)
                 response.raise_for_status()
                 data = response.json()
@@ -66,15 +89,34 @@ class MenuManager:
                 
                 offset += limit
             
-            # Process all items - Filter out $0 items and optimize for 200+ items
+            # Process all items - Filter by whitelist and $0 items
             self.menu_cache = []
             seen_ids = set()
             skipped_zero_price = 0
+            skipped_not_in_whitelist = 0
             
             for item in all_items:
                 item_id = item.get('id')
                 price_cents = item.get('price', 0)
                 price_dollars = price_cents / 100
+                
+                # Get category info
+                categories = item.get('categories', {})
+                category_id = None
+                category_name = 'General'
+                
+                # Handle both single category dict and multiple categories list
+                if isinstance(categories, dict):
+                    category_id = categories.get('id')
+                    category_name = categories.get('name', 'General')
+                elif isinstance(categories, list) and len(categories) > 0:
+                    category_id = categories[0].get('id')
+                    category_name = categories[0].get('name', 'General')
+                
+                # ONLY include items in the whitelist
+                if category_id not in INCLUDED_CATEGORY_IDS:
+                    skipped_not_in_whitelist += 1
+                    continue
                 
                 # Skip items with $0 price
                 if price_cents == 0 or price_dollars == 0:
@@ -85,19 +127,18 @@ class MenuManager:
                 if item_id and item_id not in seen_ids:
                     seen_ids.add(item_id)
                     
-                    # Clean item name - remove leading numbers like "67. " or "7. "
+                    # Keep item name exactly as-is from Clover
                     item_name = item.get('name', '')
-                    # Remove pattern like "67. " or "7. " from the start
-                    clean_name = re.sub(r'^\d+\.\s*', '', item_name).strip()
                     
                     self.menu_cache.append({
-                        'name': clean_name,
+                        'name': item_name,
                         'price': price_dollars,
-                        'category': item.get('category', {}).get('name', 'General'),
+                        'category': category_name,
                         'available': not item.get('hidden', False)
                     })
             
             print(f'⏭️  Skipped {skipped_zero_price} items with $0 price')
+            print(f'🎯 Skipped {skipped_not_in_whitelist} items not in whitelist')
             
             self.last_refresh = datetime.now()
             print(f'✅ Menu refreshed: {len(self.menu_cache)} items at {self.last_refresh.strftime("%H:%M:%S")}')
@@ -122,12 +163,13 @@ async def root():
     return {
         'service': 'Aroma Restaurant - Menu API',
         'purpose': 'Provides real-time menu data to ElevenLabs',
-        'version': '2.0',
+        'version': '2.1',
         'environment': 'PRODUCTION',
         'refresh_policy': '30-minute cache - Menu refreshes automatically every 30 minutes',
+        'filtering': f'Showing only {len(INCLUDED_CATEGORY_IDS)} whitelisted categories',
         'endpoints': {
             'menu_text': '/menu/text - Plain text format (🎯 RECOMMENDED FOR ELEVENLABS)',
-            'menu_json': '/menu - JSON format',
+            'menu_json': '/menu - JSON format with categories',
             'refresh': '/menu/refresh - Force immediate refresh',
             'health': '/health - Service health check'
         },
@@ -139,7 +181,7 @@ async def root():
 async def get_menu_json():
     """
     🎯 PRIMARY ENDPOINT FOR ELEVENLABS
-    Returns current menu in JSON format
+    Returns current menu organized by categories with items underneath
     """
     items = menu.get_menu()
     
@@ -148,18 +190,27 @@ async def get_menu_json():
     for item in items:
         cat = item['category']
         if cat not in categories:
-            categories[cat] = []
-        categories[cat].append({
+            categories[cat] = {
+                'category_name': cat,
+                'items': []
+            }
+        categories[cat]['items'].append({
             'name': item['name'],
             'price': f"${item['price']:.2f}",
-            'available': '✓' if item['available'] else '✗'
+            'available': item['available']
         })
+    
+    # Convert to list format for better display
+    menu_structure = []
+    for cat_name in sorted(categories.keys()):
+        menu_structure.append(categories[cat_name])
     
     return {
         'restaurant': 'Aroma Indian Restaurant',
         'last_updated': menu.last_refresh.strftime('%Y-%m-%d %H:%M:%S') if menu.last_refresh else 'Unknown',
         'total_items': len(items),
-        'categories': categories
+        'total_categories': len(categories),
+        'menu': menu_structure
     }
 
 
@@ -167,7 +218,7 @@ async def get_menu_json():
 async def get_menu_text():
     """
     🎯 OPTIMIZED FOR ELEVENLABS VOICE AI
-    Plain text format designed for conversational AI
+    Plain text format organized by categories
     """
     items = menu.get_menu()
     
@@ -179,21 +230,27 @@ async def get_menu_text():
             categories[cat] = []
         categories[cat].append(item)
     
-    # Create conversational text format for voice AI
-    text = "Welcome to Aroma Indian Restaurant. Here is our current menu:\n\n"
+    # Create organized text format
+    text = "AROMA INDIAN RESTAURANT - MENU\n"
+    text += "=" * 60 + "\n\n"
     
-    for category, cat_items in sorted(categories.items()):
-        text += f"{category}:\n"
+    for category in sorted(categories.keys()):
+        text += f"{category}\n"
+        text += "-" * 60 + "\n"
+        
+        cat_items = categories[category]
         for item in cat_items:
             if item['available']:
-                text += f"- {item['name']} is ${item['price']:.2f}\n"
+                text += f"  {item['name']}: ${item['price']:.2f}\n"
             else:
-                text += f"- {item['name']} is currently unavailable\n"
+                text += f"  {item['name']}: ${item['price']:.2f} (Currently Unavailable)\n"
+        
         text += "\n"
     
-    text += f"This menu was last updated on {menu.last_refresh.strftime('%B %d, %Y at %I:%M %p') if menu.last_refresh else 'recently'}.\n"
-    text += f"We currently have {len(items)} items on our menu.\n"
-    text += "Menu automatically refreshes every 30 minutes."
+    text += "=" * 60 + "\n"
+    text += f"Total Categories: {len(categories)}\n"
+    text += f"Total Items: {len(items)}\n"
+    text += f"Last Updated: {menu.last_refresh.strftime('%B %d, %Y at %I:%M %p') if menu.last_refresh else 'Recently'}\n"
     
     return text
 
@@ -243,7 +300,7 @@ if __name__ == '__main__':
     print('🏪 Environment: PRODUCTION')
     print('⚠️  Using LIVE Clover data')
     print('💲 Filtering: Items with $0 price are excluded')
-    print('🧹 Cleaning: Leading numbers removed from item names')
+    print(f'✅ Whitelist: Only showing {len(INCLUDED_CATEGORY_IDS)} approved categories')
     print('📊 Optimized for 200+ items')
     print('⚡ Fast: Cached responses for better performance')
     print('='*60 + '\n')
