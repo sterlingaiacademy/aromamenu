@@ -79,6 +79,67 @@ ALWAYS_INCLUDE_ITEMS = [
 ]
 
 # ─────────────────────────────────────────────
+# Agent Instructions — always included in KB upload
+# ─────────────────────────────────────────────
+AGENT_INSTRUCTIONS = """
+════════════════════════════════════════════════════════════
+AGENT INSTRUCTIONS & RESTAURANT GUIDELINES
+════════════════════════════════════════════════════════════
+
+Portion Size & Serving Guidance
+- All take-out curry items are served in 24 oz containers.
+- One curry dish can usually be shared by 2 to 3 people.
+- Biryani and rice items are also served in 24 oz containers.
+- Biryani and rice items are typically meant for one person.
+
+Language & Communication Rules
+- Some menu items have Hindi names (for example: Mirchi Ka Salan).
+- Do NOT translate or change menu item names into Hindi automatically.
+- Before switching from English to Hindi, always ask the customer for permission.
+- Never mix languages in a single sentence.
+- Speak only English OR only Hindi at a time.
+- All orders must be written in English only, even if the conversation is in Hindi.
+- When taking orders in Hindi, ensure quantities for each item are recorded accurately in English.
+
+Customer Information (Very Important)
+- Always ask for the customer's phone number at the beginning of the order.
+- Confirm the phone number clearly.
+- Use the same confirmed phone number when writing and printing the order.
+- Do not proceed with the order without a valid phone number.
+
+Order Confirmation Rules
+- Perform order confirmation only once, after upselling is completed.
+- Do not repeat confirmations multiple times.
+- Only reconfirm if:
+    * The customer explicitly asks to change the order
+    * The customer corrects an item or quantity
+
+Allergy & Safety Handling
+- If the customer mentions any food allergy:
+    * Politely inform the customer that you are transferring them to a human staff member.
+    * Immediately transfer the call to a human agent.
+    * Do not continue taking the order.
+
+Call Handling & Silence Rules
+- Do not hang up the call unless the customer is silent for more than 2 minutes.
+- If silence occurs: Politely prompt the customer once or twice before disconnecting.
+
+Accent & Customer Profile Awareness
+- Be aware that this is an Indian restaurant.
+- Most customers are of Indian origin.
+- Expect Indian accents and speak clearly, patiently, and politely.
+- Do not ask unnecessary clarification questions unless required.
+
+Professional Behavior
+- Be calm, friendly, and efficient.
+- Avoid rushing the customer.
+- Focus on accuracy over speed.
+- Follow instructions exactly as stated.
+
+════════════════════════════════════════════════════════════
+"""
+
+# ─────────────────────────────────────────────
 app = FastAPI(title="Aroma Menu API - For ElevenLabs")
 # ─────────────────────────────────────────────
 
@@ -87,11 +148,11 @@ app = FastAPI(title="Aroma Menu API - For ElevenLabs")
 # ElevenLabs Knowledge Base Auto-Sync
 # ─────────────────────────────────────────────
 def sync_to_elevenlabs(menu_text: str):
-    """Sync latest menu to ElevenLabs Knowledge Base.
+    """Sync latest menu + agent instructions to ElevenLabs as a single KB doc.
     1. Get existing KB doc IDs from agent
-    2. Upload new menu text as a new KB doc
-    3. Update agent to point to new doc
-    4. Delete old KB docs
+    2. Upload combined menu + instructions as one new KB doc
+    3. Update agent to point to new doc (preserving any other non-menu docs)
+    4. Delete only the old menu doc
     """
     headers = {
         'xi-api-key': ELEVENLABS_API_KEY,
@@ -99,7 +160,7 @@ def sync_to_elevenlabs(menu_text: str):
     }
     print('🔁 Syncing menu to ElevenLabs KB...')
 
-    # Step 1: Get existing KB doc IDs
+    # Step 1: Get existing KB docs
     try:
         agent_resp = requests.get(
             f'{ELEVENLABS_BASE_URL}/convai/agents/{ELEVENLABS_AGENT_ID}',
@@ -113,32 +174,45 @@ def sync_to_elevenlabs(menu_text: str):
             .get('prompt', {})
             .get('knowledge_base', [])
         )
-        old_doc_ids = [d.get('id') for d in old_kb_docs if d.get('id')]
-        print(f'   📚 Found {len(old_doc_ids)} existing KB doc(s)')
+        print(f'   📚 Found {len(old_kb_docs)} existing KB doc(s)')
     except Exception as e:
         print(f'   ❌ Failed to fetch agent: {e}')
         return False
 
-    # Step 2: Upload new menu text
+    # Step 2: Identify old menu doc vs other docs to keep
+    menu_doc_id = None
+    keep_docs   = []
+    for doc in old_kb_docs:
+        if 'Aroma Menu' in doc.get('name', ''):
+            menu_doc_id = doc.get('id')
+        else:
+            keep_docs.append(doc)
+    print(f'   🗂️  Keeping {len(keep_docs)} non-menu doc(s)')
+
+    # Step 3: Combine menu + agent instructions into one document
+    combined_text = menu_text + "\n\n" + AGENT_INSTRUCTIONS
+
+    # Step 4: Upload combined doc
     try:
         upload_resp = requests.post(
             f'{ELEVENLABS_BASE_URL}/convai/knowledge-base/text',
             headers=headers,
             json={
                 'name': f'Aroma Menu - {datetime.now().strftime("%Y-%m-%d %H:%M")}',
-                'text': menu_text
+                'text': combined_text
             },
             timeout=15
         )
         upload_resp.raise_for_status()
         new_doc_id = upload_resp.json().get('id')
-        print(f'   📤 Uploaded new KB doc: {new_doc_id}')
+        print(f'   📤 Uploaded combined menu + instructions doc: {new_doc_id}')
     except Exception as e:
         print(f'   ❌ Failed to upload KB doc: {e}')
         return False
 
-    # Step 3: Update agent to use new KB doc
+    # Step 5: Update agent — keep other docs + add new combined doc
     try:
+        updated_kb = keep_docs + [{'type': 'file', 'id': new_doc_id, 'name': 'Aroma Menu'}]
         requests.patch(
             f'{ELEVENLABS_BASE_URL}/convai/agents/{ELEVENLABS_AGENT_ID}',
             headers=headers,
@@ -146,34 +220,32 @@ def sync_to_elevenlabs(menu_text: str):
                 'conversation_config': {
                     'agent': {
                         'prompt': {
-                            'knowledge_base': [
-                                {'type': 'file', 'id': new_doc_id, 'name': 'Aroma Menu'}
-                            ]
+                            'knowledge_base': updated_kb
                         }
                     }
                 }
             },
             timeout=15
         ).raise_for_status()
-        print('   ✅ Agent KB updated!')
+        print(f'   ✅ Agent KB updated with {len(updated_kb)} doc(s)!')
     except Exception as e:
         print(f'   ❌ Failed to update agent KB: {e}')
         return False
 
-    # Step 4: Delete old KB docs
-    for old_id in old_doc_ids:
+    # Step 6: Delete only the old menu doc
+    if menu_doc_id:
         try:
             resp = requests.delete(
-                f'{ELEVENLABS_BASE_URL}/convai/knowledge-base/{old_id}',
+                f'{ELEVENLABS_BASE_URL}/convai/knowledge-base/{menu_doc_id}',
                 headers={'xi-api-key': ELEVENLABS_API_KEY},
                 timeout=10
             )
             if resp.status_code in (200, 204):
-                print(f'   🗑️  Deleted old KB doc: {old_id}')
+                print(f'   🗑️  Deleted old menu doc: {menu_doc_id}')
             else:
-                print(f'   ⚠️  Could not delete {old_id}: {resp.status_code}')
+                print(f'   ⚠️  Could not delete old menu doc: {resp.status_code}')
         except Exception as e:
-            print(f'   ⚠️  Error deleting {old_id}: {e}')
+            print(f'   ⚠️  Error deleting old menu doc: {e}')
 
     print('✅ ElevenLabs KB sync complete!')
     return True
@@ -217,8 +289,8 @@ class MenuManager:
         """Refresh menu from Clover - cached for 30 minutes unless forced."""
         if not force and self.last_refresh:
             age = datetime.now() - self.last_refresh
-            if age < timedelta(minutes=30):
-                print(f'✓ Using cached menu ({int(age.total_seconds() / 60)} min old)')
+            if age < timedelta(hours=24):
+                print(f'✓ Using cached menu ({int(age.total_seconds() / 3600)} hr old)')
                 return True
 
         print('🔄 Fetching fresh menu from Clover...')
@@ -487,7 +559,7 @@ async def health():
         'items':             len(menu.menu_cache),
         'last_refresh':      menu.last_refresh.isoformat() if menu.last_refresh else None,
         'cache_age_minutes': age_minutes,
-        'elevenlabs_sync':   'enabled — syncs on every menu refresh'
+        'elevenlabs_sync':   'enabled — syncs menu + agent instructions on every refresh'
     }
 
 
@@ -548,9 +620,9 @@ if __name__ == '__main__':
     print('🏥  /health            — health check')
     print('🔍  /debug/categories  — inspect Clover categories')
     print('=' * 60)
-    print('⚡  Cache: 30 minutes | Filtering: whitelisted categories only')
+    print('⚡  Cache: 24 hours | Filtering: whitelisted categories only')
     print('💲  $0 price items excluded automatically')
     print('📌  Beef Ullarthu always force-included')
-    print('🔁  ElevenLabs KB auto-synced on every menu refresh')
+    print('🔁  ElevenLabs KB auto-synced (menu + agent instructions combined)')
     print('=' * 60 + '\n')
     uvicorn.run(app, host='0.0.0.0', port=PORT)
