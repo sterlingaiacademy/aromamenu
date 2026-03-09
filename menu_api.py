@@ -607,18 +607,25 @@ async def debug_sample_items():
         return {'error': str(e)}
 
 
+@app.get("/menu/instructions", response_class=PlainTextResponse)
+async def get_instructions():
+    """Preview the agent instructions that get included in ElevenLabs KB."""
+    return AGENT_INSTRUCTIONS
+
+
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
     import uvicorn
     print('\n' + '=' * 60)
     print('🍽️   Aroma Restaurant - Menu API v3.0 (PRODUCTION)')
     print('=' * 60)
-    print('🎯  NEW: /menu/prompt  — inject live menu into ElevenLabs system prompt')
-    print('📋  /menu/text         — plain text for knowledge base (fallback)')
-    print('📦  /menu              — full JSON')
-    print('🔄  /menu/refresh      — force Clover sync + ElevenLabs KB update')
-    print('🏥  /health            — health check')
-    print('🔍  /debug/categories  — inspect Clover categories')
+    print('🎯  NEW: /menu/prompt        — inject live menu into ElevenLabs system prompt')
+    print('📋  /menu/text               — plain text for knowledge base (fallback)')
+    print('📦  /menu                    — full JSON')
+    print('🔄  /menu/refresh            — force Clover sync + ElevenLabs KB update')
+    print('📝  /menu/instructions       — preview agent instructions')
+    print('🏥  /health                  — health check')
+    print('🔍  /debug/categories        — inspect Clover categories')
     print('=' * 60)
     print('⚡  Cache: 24 hours | Filtering: whitelisted categories only')
     print('💲  $0 price items excluded automatically')
