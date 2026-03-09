@@ -30,6 +30,13 @@ CLOVER_BASE_URL = os.getenv('CLOVER_BASE_URL', 'https://api.clover.com')
 PORT           = int(os.getenv('PORT', 8000))
 
 # ─────────────────────────────────────────────
+# ElevenLabs Credentials
+# ─────────────────────────────────────────────
+ELEVENLABS_API_KEY  = os.getenv('ELEVENLABS_API_KEY',  '57a5e3b702aff949f748e8d2a66bf85dcfb55725eb0a02b32a92cba69e58c6ff')
+ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID', 'agent_1401kdxz1dm8fnvv6hang8twmx3b')
+ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
+
+# ─────────────────────────────────────────────
 # Whitelisted Category IDs (only these appear in menu)
 # ─────────────────────────────────────────────
 INCLUDED_CATEGORY_IDS = [
@@ -76,6 +83,102 @@ app = FastAPI(title="Aroma Menu API - For ElevenLabs")
 # ─────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────
+# ElevenLabs Knowledge Base Auto-Sync
+# ─────────────────────────────────────────────
+def sync_to_elevenlabs(menu_text: str):
+    """Sync latest menu to ElevenLabs Knowledge Base.
+    1. Get existing KB doc IDs from agent
+    2. Upload new menu text as a new KB doc
+    3. Update agent to point to new doc
+    4. Delete old KB docs
+    """
+    headers = {
+        'xi-api-key': ELEVENLABS_API_KEY,
+        'Content-Type': 'application/json'
+    }
+    print('🔁 Syncing menu to ElevenLabs KB...')
+
+    # Step 1: Get existing KB doc IDs
+    try:
+        agent_resp = requests.get(
+            f'{ELEVENLABS_BASE_URL}/convai/agents/{ELEVENLABS_AGENT_ID}',
+            headers=headers, timeout=10
+        )
+        agent_resp.raise_for_status()
+        old_kb_docs = (
+            agent_resp.json()
+            .get('conversation_config', {})
+            .get('agent', {})
+            .get('prompt', {})
+            .get('knowledge_base', [])
+        )
+        old_doc_ids = [d.get('id') for d in old_kb_docs if d.get('id')]
+        print(f'   📚 Found {len(old_doc_ids)} existing KB doc(s)')
+    except Exception as e:
+        print(f'   ❌ Failed to fetch agent: {e}')
+        return False
+
+    # Step 2: Upload new menu text
+    try:
+        upload_resp = requests.post(
+            f'{ELEVENLABS_BASE_URL}/convai/knowledge-base/text',
+            headers=headers,
+            json={
+                'name': f'Aroma Menu - {datetime.now().strftime("%Y-%m-%d %H:%M")}',
+                'text': menu_text
+            },
+            timeout=15
+        )
+        upload_resp.raise_for_status()
+        new_doc_id = upload_resp.json().get('id')
+        print(f'   📤 Uploaded new KB doc: {new_doc_id}')
+    except Exception as e:
+        print(f'   ❌ Failed to upload KB doc: {e}')
+        return False
+
+    # Step 3: Update agent to use new KB doc
+    try:
+        requests.patch(
+            f'{ELEVENLABS_BASE_URL}/convai/agents/{ELEVENLABS_AGENT_ID}',
+            headers=headers,
+            json={
+                'conversation_config': {
+                    'agent': {
+                        'prompt': {
+                            'knowledge_base': [
+                                {'type': 'file', 'id': new_doc_id, 'name': 'Aroma Menu'}
+                            ]
+                        }
+                    }
+                }
+            },
+            timeout=15
+        ).raise_for_status()
+        print('   ✅ Agent KB updated!')
+    except Exception as e:
+        print(f'   ❌ Failed to update agent KB: {e}')
+        return False
+
+    # Step 4: Delete old KB docs
+    for old_id in old_doc_ids:
+        try:
+            resp = requests.delete(
+                f'{ELEVENLABS_BASE_URL}/convai/knowledge-base/{old_id}',
+                headers={'xi-api-key': ELEVENLABS_API_KEY},
+                timeout=10
+            )
+            if resp.status_code in (200, 204):
+                print(f'   🗑️  Deleted old KB doc: {old_id}')
+            else:
+                print(f'   ⚠️  Could not delete {old_id}: {resp.status_code}')
+        except Exception as e:
+            print(f'   ⚠️  Error deleting {old_id}: {e}')
+
+    print('✅ ElevenLabs KB sync complete!')
+    return True
+
+
 class MenuManager:
     def __init__(self):
         self.headers = {
@@ -85,6 +188,30 @@ class MenuManager:
         self.menu_cache = []
         self.last_refresh = None
         self.refresh_menu()
+
+    def build_menu_text(self):
+        """Build plain text menu for ElevenLabs KB upload."""
+        cats  = self.grouped_by_category()
+        lines = ["AROMA INDIAN RESTAURANT - MENU", "=" * 60, ""]
+        for category in sorted(cats.keys()):
+            lines.append(category)
+            lines.append("-" * 60)
+            for item in cats[category]:
+                suffix = "" if item['available'] else " (Currently Unavailable)"
+                line   = f"  {item['name']}: ${item['price']:.2f}{suffix}"
+                if item.get('alternateName'):
+                    line += f" (Also known as: {item['alternateName']})"
+                lines.append(line)
+                if item.get('description'):
+                    lines.append(f"    {item['description']}")
+            lines.append("")
+        lines += [
+            "=" * 60,
+            f"Total Categories: {len(cats)}",
+            f"Total Items: {len(self.menu_cache)}",
+            f"Last Updated: {self.last_refresh.strftime('%B %d, %Y at %I:%M %p') if self.last_refresh else 'Recently'}"
+        ]
+        return "\n".join(lines)
 
     def refresh_menu(self, force=False):
         """Refresh menu from Clover - cached for 30 minutes unless forced."""
@@ -176,6 +303,10 @@ class MenuManager:
             print(f'⏭️  Skipped {skipped_zero} $0 items, {skipped_whitelist} non-whitelisted')
             self.last_refresh = datetime.now()
             print(f'✅ {len(self.menu_cache)} items cached at {self.last_refresh.strftime("%H:%M:%S")}')
+
+            # ── Auto-sync to ElevenLabs KB ──
+            sync_to_elevenlabs(self.build_menu_text())
+
             return True
 
         except Exception as e:
@@ -209,12 +340,12 @@ async def root():
         'service':        'Aroma Restaurant - Menu API',
         'version':        '3.0',
         'environment':    'PRODUCTION',
-        'refresh_policy': '30-minute cache, auto-refresh from Clover',
+        'refresh_policy': '30-minute cache, auto-refresh from Clover + ElevenLabs KB sync',
         'endpoints': {
             '/menu/prompt': '🎯 USE THIS for ElevenLabs system prompt injection',
             '/menu/text':   'Plain text for knowledge base (fallback)',
             '/menu':        'Full JSON menu',
-            '/menu/refresh':'Force refresh from Clover',
+            '/menu/refresh':'Force refresh from Clover + sync ElevenLabs KB',
             '/health':      'Health check',
         }
     }
@@ -335,13 +466,13 @@ async def get_menu_for_prompt():
 @app.get("/menu/refresh")
 @app.post("/menu/refresh")
 async def refresh_menu_endpoint():
-    """Force immediate menu refresh from Clover (GET or POST)."""
+    """Force immediate menu refresh from Clover + sync ElevenLabs KB (GET or POST)."""
     success = menu.refresh_menu(force=True)
     return {
         'success':  success,
         'items':    len(menu.menu_cache),
         'updated':  menu.last_refresh.isoformat() if menu.last_refresh else None,
-        'message':  f'Menu refreshed! Now showing {len(menu.menu_cache)} items.'
+        'message':  f'Menu refreshed and ElevenLabs KB synced! Now showing {len(menu.menu_cache)} items.'
     }
 
 
@@ -351,11 +482,12 @@ async def health():
     if menu.last_refresh:
         age_minutes = int((datetime.now() - menu.last_refresh).total_seconds() / 60)
     return {
-        'status':       'healthy',
-        'environment':  'PRODUCTION',
-        'items':        len(menu.menu_cache),
-        'last_refresh': menu.last_refresh.isoformat() if menu.last_refresh else None,
-        'cache_age_minutes': age_minutes
+        'status':            'healthy',
+        'environment':       'PRODUCTION',
+        'items':             len(menu.menu_cache),
+        'last_refresh':      menu.last_refresh.isoformat() if menu.last_refresh else None,
+        'cache_age_minutes': age_minutes,
+        'elevenlabs_sync':   'enabled — syncs on every menu refresh'
     }
 
 
@@ -412,11 +544,13 @@ if __name__ == '__main__':
     print('🎯  NEW: /menu/prompt  — inject live menu into ElevenLabs system prompt')
     print('📋  /menu/text         — plain text for knowledge base (fallback)')
     print('📦  /menu              — full JSON')
-    print('🔄  /menu/refresh      — force Clover sync')
+    print('🔄  /menu/refresh      — force Clover sync + ElevenLabs KB update')
     print('🏥  /health            — health check')
     print('🔍  /debug/categories  — inspect Clover categories')
     print('=' * 60)
     print('⚡  Cache: 30 minutes | Filtering: whitelisted categories only')
     print('💲  $0 price items excluded automatically')
+    print('📌  Beef Ullarthu always force-included')
+    print('🔁  ElevenLabs KB auto-synced on every menu refresh')
     print('=' * 60 + '\n')
     uvicorn.run(app, host='0.0.0.0', port=PORT)
