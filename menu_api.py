@@ -55,6 +55,23 @@ INCLUDED_CATEGORY_IDS = [
 ]
 
 # ─────────────────────────────────────────────
+# Hardcoded items to ALWAYS include regardless of category
+# ─────────────────────────────────────────────
+ALWAYS_INCLUDE_ITEMS = [
+    {
+        "id":            "6QSQCJWTRBXZY",
+        "name":          "Beef Ullarthu",
+        "price":         22.00,
+        "category":      "Lamb & Goat Entrees",
+        "description":   "",
+        "alternateName": "",
+        "code":          "",
+        "sku":           "",
+        "available":     True
+    }
+]
+
+# ─────────────────────────────────────────────
 app = FastAPI(title="Aroma Menu API - For ElevenLabs")
 # ─────────────────────────────────────────────
 
@@ -102,6 +119,22 @@ class MenuManager:
             seen_ids = set()
             skipped_zero = skipped_whitelist = 0
 
+            # ── Always-include hardcoded items first ──
+            for forced_item in ALWAYS_INCLUDE_ITEMS:
+                seen_ids.add(forced_item['id'])
+                self.menu_cache.append({
+                    'name':          forced_item['name'],
+                    'price':         forced_item['price'],
+                    'category':      forced_item['category'],
+                    'description':   forced_item['description'],
+                    'alternateName': forced_item['alternateName'],
+                    'code':          forced_item['code'],
+                    'sku':           forced_item['sku'],
+                    'available':     forced_item['available']
+                })
+                print(f'📌 Force-included: {forced_item["name"]}')
+
+            # ── Normal Clover items ──
             for item in all_items:
                 item_id     = item.get('id')
                 price_cents = item.get('price', 0)
