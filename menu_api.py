@@ -75,6 +75,28 @@ ALWAYS_INCLUDE_ITEMS = [
         "code":          "",
         "sku":           "",
         "available":     True
+    },
+    {
+        "id":            "7Z950VZTC96E8",
+        "name":          "Onam Sadhya Takeout",
+        "price":         24.95,
+        "category":      "Aroma Specials",
+        "description":   "",
+        "alternateName": "",
+        "code":          "",
+        "sku":           "",
+        "available":     True
+    },
+    {
+        "id":            "DSAG3XTVXM6GA",
+        "name":          "Onam Sadya Kids",
+        "price":         13.99,
+        "category":      "Aroma Specials",
+        "description":   "",
+        "alternateName": "",
+        "code":          "",
+        "sku":           "",
+        "available":     True
     }
 ]
 
