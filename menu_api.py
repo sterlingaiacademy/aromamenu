@@ -32,7 +32,7 @@ PORT           = int(os.getenv('PORT', 8000))
 # ─────────────────────────────────────────────
 # ElevenLabs Credentials
 # ─────────────────────────────────────────────
-ELEVENLABS_API_KEY  = os.getenv('ELEVENLABS_API_KEY',  '57a5e3b702aff949f748e8d2a66bf85dcfb55725eb0a02b32a92cba69e58c6ff')
+ELEVENLABS_API_KEY  = os.getenv('ELEVENLABS_API_KEY',  'sk_368aaff08232afd3ab64a43ad0ac53d4ed8b97167ba4d49a')
 ELEVENLABS_AGENT_ID = os.getenv('ELEVENLABS_AGENT_ID', 'agent_1401kdxz1dm8fnvv6hang8twmx3b')
 ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
 
